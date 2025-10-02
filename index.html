@@ -10,7 +10,7 @@
         /* Custom styles for professional look and better readability */
         body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; }
         .module-card { transition: all 0.3s ease; }
-        .module-card:hover { transform: translateY(-3px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
+        .module-card:hover { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
         .quiz-option { transition: background-color 0.15s, border-color 0.15s; }
         .quiz-option:not([disabled]):hover { background-color: #f0f4ff; cursor: pointer; border-color: #6366f1; }
         /* Styling for correct/incorrect answers */
@@ -18,23 +18,24 @@
         .incorrect { background-color: #fee2e2 !important; border-color: #ef4444 !important; pointer-events: none; }
         .fade-in { animation: fadeIn 0.5s; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .rcm-step { cursor: pointer; transition: background-color 0.2s; }
+        .rcm-step:hover { background-color: #e0f2fe; }
+        .rcm-step.active { border-color: #2563eb; background-color: #dbeafe; }
     </style>
 </head>
 <body class="p-4 sm:p-8">
     <script type="module">
-        // --- FIREBASE SETUP (Mandatory for interactive, persistent apps) ---
+        // --- FIREBASE SETUP (Included for persistent features if needed later) ---
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Global variables provided by the environment
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
         let app, db, auth, userId = null;
 
-        // Initialize Firebase and Authentication
         const initFirebase = async () => {
             try {
                 if (firebaseConfig) {
@@ -42,22 +43,15 @@
                     auth = getAuth(app);
                     db = getFirestore(app);
 
-                    // Sign in using the provided token or anonymously
                     if (initialAuthToken) {
                         await signInWithCustomToken(auth, initialAuthToken);
                     } else {
                         await signInAnonymously(auth);
                     }
 
-                    // Set up Auth State Listener
                     onAuthStateChanged(auth, (user) => {
-                        if (user) {
-                            userId = user.uid;
-                            document.getElementById('user-id-display').textContent = `User ID: ${userId.substring(0, 8)}... (for sharing)`;
-                        } else {
-                            userId = crypto.randomUUID();
-                            document.getElementById('user-id-display').textContent = `Session ID: ${userId.substring(0, 8)}...`;
-                        }
+                        if (user) { userId = user.uid; } else { userId = crypto.randomUUID(); }
+                        document.getElementById('user-id-display').textContent = `User ID: ${userId.substring(0, 8)}... (for sharing)`;
                     });
                 } else {
                     document.getElementById('user-id-display').textContent = 'Firebase config not available.';
@@ -75,7 +69,7 @@
         const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent";
         const API_KEY = ""; // Canvas will provide this if empty
 
-        // Schema for structured JSON output: an array of 5 questions
+        // UPDATED SCHEMA: Includes bodyPart
         const practiceSchema = {
             type: "ARRAY",
             items: {
@@ -84,9 +78,10 @@
                     question: { "type": "STRING", "description": "The multiple-choice question text." },
                     options: { "type": "ARRAY", "items": { "type": "STRING" }, "description": "Array of exactly 4 answer options." },
                     correctAnswer: { "type": "STRING", "description": "The text of the correct answer, which must match one of the options." },
-                    topic: { "type": "STRING", "description": "The CBCS curriculum topic covered (e.g., ICD-10, Anatomy, RCM)." }
+                    topic: { "type": "STRING", "description": "The CBCS curriculum topic covered (e.g., ICD-10, CPT, RCM)." },
+                    bodyPart: { "type": "STRING", "description": "The specific anatomical area or system the question relates to (e.g., Cardiovascular System, Musculoskeletal, Digestive)." } // NEW PROPERTY
                 },
-                "required": ["question", "options", "correctAnswer", "topic"]
+                "required": ["question", "options", "correctAnswer", "topic", "bodyPart"]
             },
             minItems: 5,
             maxItems: 5
@@ -103,10 +98,12 @@
 
             quizContainer.innerHTML = '';
             statusElement.innerHTML = `<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-indigo-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Generating 5 new CBCS practice questions...`;
+            statusElement.classList.remove('text-red-600');
+            statusElement.classList.add('text-indigo-600');
             retryButton.classList.add('hidden');
             
-            // System instructions guide the model's persona and output quality
-            const systemPrompt = "You are an expert Certified Billing and Coding Specialist (CBCS) exam proctor. Generate five challenging, professional, multiple-choice questions for the exam, covering core areas like Terminology, Anatomy, ICD-10-CM Coding, CPT/HCPCS Coding, and Revenue Cycle Management (RCM) and Compliance.";
+            // UPDATED SYSTEM PROMPT
+            const systemPrompt = "You are an expert Certified Billing and Coding Specialist (CBCS) exam proctor. Generate five challenging, professional, multiple-choice questions for the exam. For each question, ensure you specify the main CBCS curriculum topic (e.g., ICD-10-CM Coding, CPT, RCM) and the specific anatomical bodyPart/system (e.g., Digestive System, Cardiovascular, Integumentary) related to the question.";
 
             const userQuery = "Generate a new batch of 5 CBCS multiple-choice questions in the requested JSON format.";
 
@@ -120,33 +117,48 @@
                     responseSchema: practiceSchema
                 }
             };
+            
+            // Implement Exponential Backoff for robustness against network issues
+            const maxRetries = 3;
+            let lastError = null;
 
-            try {
-                const response = await fetch(GEMINI_API_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
+                try {
+                    const response = await fetch(GEMINI_API_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
 
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    if (!response.ok) throw new Error(`HTTP status: ${response.status}`);
 
-                const result = await response.json();
-                const jsonText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+                    const result = await response.json();
+                    const jsonText = result.candidates?.[0]?.content?.parts?.[0]?.text;
 
-                if (jsonText) {
-                    currentQuiz = JSON.parse(jsonText);
-                    currentQuestionIndex = 0;
-                    score = 0;
-                    renderQuestion();
-                } else {
-                    statusElement.textContent = "Error: Could not parse questions from the model. Please check the console for details.";
-                    retryButton.classList.remove('hidden');
+                    if (jsonText) {
+                        currentQuiz = JSON.parse(jsonText);
+                        currentQuestionIndex = 0;
+                        score = 0;
+                        renderQuestion();
+                        return; // Success
+                    } else {
+                        throw new Error("Could not parse JSON content from model response.");
+                    }
+                } catch (error) {
+                    lastError = error;
+                    // Exponential backoff delay
+                    if (attempt < maxRetries - 1) {
+                        const delay = Math.pow(2, attempt) * 1000;
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                    }
                 }
-            } catch (error) {
-                console.error("API call error:", error);
-                statusElement.textContent = `Failed to load questions. Please check your network connection or try again.`;
-                retryButton.classList.remove('hidden');
             }
+
+            // Failure after all retries
+            statusElement.innerHTML = `❌ Failed to load questions after ${maxRetries} attempts. Error: ${lastError ? lastError.message : 'Unknown.'} Check your network and try again.`;
+            statusElement.classList.remove('text-indigo-600');
+            statusElement.classList.add('text-red-600');
+            retryButton.classList.remove('hidden');
         }
 
         function renderQuestion() {
@@ -156,15 +168,15 @@
 
             if (!q) {
                 // Quiz finished
-                statusElement.innerHTML = `<span class="text-xl font-bold text-teal-600">Quiz Complete!</span> You scored <span class="text-3xl font-extrabold">${score}</span> out of ${currentQuiz.length}.`;
+                statusElement.innerHTML = `<span class="text-xl font-bold text-teal-600">Quiz Complete!</span> You scored <span class="text-3xl font-extrabold">${score}</span> out of ${currentQuiz.length}. Review the questions below.`;
                 document.getElementById('retry-quiz-btn').classList.remove('hidden');
                 quizContainer.innerHTML = '';
                 return;
             }
 
-            statusElement.innerHTML = `<span class="font-semibold text-indigo-600">Question ${currentQuestionIndex + 1} of ${currentQuiz.length}</span> | Topic: <span class="text-teal-700">${q.topic}</span>`;
+            // Display Topic AND Body Part
+            statusElement.innerHTML = `<span class="font-semibold text-indigo-600">Question ${currentQuestionIndex + 1} of ${currentQuiz.length}</span> | Topic: <span class="text-teal-700">${q.topic}</span> | Body System: <span class="text-pink-700">${q.bodyPart}</span>`;
 
-            // Function to handle answer checking logic
             const checkAnswerString = `window.checkAnswer(this, '${q.correctAnswer.replace(/'/g, "\\'")}')`;
 
             let optionsHtml = q.options.map((option, index) => `
@@ -193,9 +205,8 @@
             const feedbackElement = document.getElementById(`feedback-${currentQuestionIndex}`);
             const options = document.querySelectorAll('.quiz-option');
 
-            // Disable all options and highlight results
             options.forEach(opt => {
-                opt.onclick = null; // Disable further clicks
+                opt.onclick = null;
                 if (opt.getAttribute('data-answer') === correctAnswer) {
                     opt.classList.add('correct');
                     opt.classList.remove('hover:border-indigo-400');
@@ -207,14 +218,13 @@
 
             if (isCorrect) {
                 element.classList.add('correct');
-                feedbackElement.innerHTML = '<span class="text-green-600">✅ Correct!</span>';
+                feedbackElement.innerHTML = '<span class="text-green-600">✅ Correct! Excellent knowledge of CBCS guidelines.</span>';
                 score++;
             } else {
                 element.classList.add('incorrect');
-                feedbackElement.innerHTML = `<span class="text-red-600">❌ Incorrect. The correct answer is highlighted in green.</span>`;
+                feedbackElement.innerHTML = `<span class="text-red-600">❌ Incorrect. Review the guidelines. The correct answer is highlighted in green.</span>`;
             }
 
-            // Show Next button
             document.getElementById(`next-btn-${currentQuestionIndex}`).classList.remove('hidden');
         };
 
@@ -222,8 +232,38 @@
             currentQuestionIndex++;
             renderQuestion();
         };
+
+        // --- MODULE 3: RCM INTERACTIVITY LOGIC ---
+        const RCM_DETAILS = {
+            1: { title: "1. Pre-Registration & Eligibility", color: "blue", content: "The CBCS staff (or front office) confirms the patient's insurance coverage is active and verifies benefits. This step is critical for securing **Prior Authorization (PA)** if needed, preventing a denial before the service even occurs." },
+            2: { title: "2. Patient Check-in & Encounter", color: "green", content: "Collecting co-pays, deductibles, and necessary forms. For billing, the focus is on the **Provider's Documentation** in the EHR. If the documentation doesn't support the code, the claim will fail." },
+            3: { title: "3. Medical Coding", color: "purple", content: "This is the primary role of the CBCS: translating the provider's documentation into standardized codes (**ICD-10-CM, CPT, and HCPCS Level II**). Accuracy determines clean claim submission." },
+            4: { title: "4. Claim Submission", color: "orange", content: "The coded services are turned into an electronic or paper claim (like the **CMS-1500**). Claims must be 'scrubbed' (checked for errors) before transmission to the payer (the insurance company)." },
+            5: { title: "5. Payer Adjudication", color: "red", content: "The insurance company processes the claim and determines payment. The result is documented in the **Explanation of Benefits (EOB)** or **Electronic Remittance Advice (ERA)**." },
+            6: { title: "6. Denial Management & Appeals", color: "pink", content: "If a claim is denied, the CBCS must identify the reason (e.g., 'PA Missing,' 'Coding Error,' 'Non-Covered Service') and correct or appeal the claim promptly. Appeals follow specific timelines." },
+            7: { title: "7. Patient Billing", color: "yellow", content: "Once the insurance company has paid their portion, the patient is billed for their remaining liability (co-pay, deductible, co-insurance). This manages the **Accounts Receivable (A/R)**." },
+            8: { title: "8. Collections & Compliance", color: "gray", content: "Final collection efforts for outstanding patient balances and continuous process improvement. The CBCS is responsible for adhering to all federal laws like HIPAA, fraud/abuse rules, and state regulations." }
+        };
+
+        window.showRCMDetails = (step) => {
+            const details = RCM_DETAILS[step];
+            const detailContainer = document.getElementById('rcm-detail-display');
+            const stepElements = document.querySelectorAll('.rcm-step');
+
+            // Deactivate all steps
+            stepElements.forEach(el => el.classList.remove('active'));
+            // Activate clicked step
+            document.getElementById(`rcm-step-${step}`).classList.add('active');
+
+            detailContainer.innerHTML = `
+                <div class="fade-in border-l-4 border-${details.color}-500 pl-4">
+                    <h4 class="text-xl font-extrabold text-${details.color}-800 mb-2">${details.title}</h4>
+                    <p class="text-gray-700">${details.content}</p>
+                </div>
+            `;
+        };
         
-        // --- MODULE 1: TERMINOLOGY BUILDER LOGIC ---
+        // --- MODULE 1: TERMINOLOGY BUILDER LOGIC (unchanged) ---
         function analyzeTerm() {
             const termInput = document.getElementById('term-input').value.toLowerCase().trim();
             const resultDiv = document.getElementById('term-analysis-result');
@@ -234,7 +274,6 @@
                 return;
             }
 
-            // Simple rule-based analysis based on common parts (Chapter 1)
             let analysis = {
                 term: termInput,
                 prefix: 'N/A',
@@ -243,19 +282,16 @@
                 definition: 'Analysis is based on common word parts. Always verify in a medical dictionary!'
             };
 
-            // Basic Prefixes
             const prefixes = { 'hyper': 'Hyper- (excessive)', 'hypo': 'Hypo- (deficient)', 'tachy': 'Tachy- (fast)', 'brady': 'Brady- (slow)', 'peri': 'Peri- (around)', 'epi': 'Epi- (upon)' };
             for (const p in prefixes) {
                 if (termInput.startsWith(p)) { analysis.prefix = prefixes[p]; analysis.root = termInput.substring(p.length); break; }
             }
 
-            // Basic Suffixes
             const suffixes = { 'ectomy': '-ectomy (surgical removal)', 'itis': '-itis (inflammation)', 'algia': '-algia (pain)', 'otomy': '-otomy (surgical incision)' };
             let tempRoot = analysis.root;
             for (const s in suffixes) {
                 if (tempRoot.endsWith(s)) { analysis.suffix = suffixes[s]; analysis.root = tempRoot.slice(0, -s.length); break; }
             }
-            // Clean up combining vowels if necessary, e.g., 'cardi/o'
             analysis.root = analysis.root.replace(/(\w+)[oiea]$/, '$1/');
             
             resultDiv.innerHTML = `
@@ -269,10 +305,12 @@
             `;
         }
 
+
         // --- WINDOW LOAD & INITIALIZATION ---
         window.onload = () => {
-            // Load initial quiz on page load
             generatePracticeQuestions();
+            // Initial RCM detail display
+            showRCMDetails(1); 
         };
 
         // Expose functions globally for HTML event handlers
@@ -290,14 +328,14 @@
     <main class="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
         <!-- MODULE 1: Chapter 1 - Medical Terminology Review -->
-        <div class="lg:col-span-1 module-card bg-white p-6 rounded-xl shadow-md border-t-4 border-indigo-500">
+        <div class="lg:col-span-1 module-card bg-white p-6 rounded-xl shadow-md border-t-4 border-indigo-500 h-full">
             <h2 class="text-2xl font-bold text-gray-800 mb-4 flex items-center">
                 <svg class="w-6 h-6 mr-2 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5s3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18s-3.332.477-4.5 1.253"></path></svg>
                 1. Terminology Builder
             </h2>
             <p class="text-gray-600 mb-4">Practice deconstructing terms into Prefix, Root, and Suffix (Chapter 1 focus).</p>
             
-            <input type="text" id="term-input" placeholder="e.g., Tachycardia or Nephritis"
+            <input type="text" id="term-input" placeholder="e.g., Cholecystectomy or Nephritis"
                    class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 mb-3">
             
             <button onclick="analyzeTerm()"
@@ -316,10 +354,10 @@
                 <svg class="w-6 h-6 mr-2 text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
                 2. CBCS Exam Practice Generator
             </h2>
-            <p class="text-gray-600 mb-4">Generates a quick, 5-question quiz covering all core CBCS areas (ICD-10, CPT, RCM, Compliance).</p>
+            <p class="text-gray-600 mb-4">Generates a quick, 5-question quiz covering all core CBCS areas. Includes the relevant **Body System** for review.</p>
             
             <div id="quiz-status" class="text-center p-3 mb-4 text-sm font-medium text-gray-700 flex items-center justify-center bg-gray-100 rounded-lg min-h-[3rem]">
-                Loading practice questions...
+                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-indigo-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Initializing quiz...
             </div>
             
             <div id="quiz-container" class="mb-6">
@@ -327,77 +365,89 @@
             </div>
 
             <button id="retry-quiz-btn" onclick="generatePracticeQuestions()"
-                    class="w-full px-4 py-2 bg-teal-500 text-white font-semibold rounded-lg shadow-md hover:bg-teal-600 transition duration-150 ease-in-out">
+                    class="w-full px-4 py-2 bg-teal-500 text-white font-semibold rounded-lg shadow-md hover:bg-teal-600 transition duration-150 ease-in-out hidden">
                 Generate New Quiz
             </button>
         </div>
 
-        <!-- MODULE 3: Revenue Cycle Management (RCM) Flow -->
+        <!-- MODULE 3: Revenue Cycle Management (RCM) Flow - INTERACTIVE -->
         <div class="lg:col-span-3 module-card bg-white p-6 rounded-xl shadow-md border-t-4 border-yellow-500">
             <h2 class="text-2xl font-bold text-gray-800 mb-4 flex items-center">
                 <svg class="w-6 h-6 mr-2 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c1.657 0 3 .895 3 2s-1.343 2-3 2h-1v2H9V8h3z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 16h6M9 20h6M9 4h6"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 12V4a2 2 0 012-2h12a2 2 0 012 2v16a2 2 0 01-2 2H6a2 2 0 01-2-2v-8"></path></svg>
-                3. Revenue Cycle Management (RCM) Overview
+                3. Revenue Cycle Management (RCM) Overview (Interactive)
             </h2>
-            <p class="text-gray-600 mb-4">Visualize the 8-step RCM process (Chapter 8/9 concepts) and the key role of the CBCS at each stage.</p>
+            <p class="text-gray-600 mb-4">Click any step to see the CBCS's key responsibilities in that phase of the billing cycle.</p>
             
-            <!-- RCM Flow Visualization - Responsive Grid -->
+            <!-- RCM Flow Visualization - Clickable Steps -->
             <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-4 text-center">
                 
-                <div class="bg-blue-100 p-3 rounded-lg border-2 border-blue-300">
+                <!-- Step 1 -->
+                <div id="rcm-step-1" class="rcm-step bg-blue-100 p-3 rounded-lg border-2 border-blue-300" onclick="showRCMDetails(1)">
                     <p class="font-bold text-blue-800">1. Pre-Registration</p>
-                    <p class="text-xs text-blue-700">Verify Eligibility/Authorization</p>
+                    <p class="text-xs text-blue-700">Eligibility & PA</p>
                 </div>
-                <!-- Arrow for large screens -->
-                <div class="flex items-center justify-center text-gray-500 font-bold hidden lg:block">&rarr;</div> 
-                <!-- Break and arrow for small/medium screens -->
+                <div class="flex items-center justify-center text-gray-500 font-bold hidden lg:block">&rarr;</div>
                 <div class="flex items-center justify-center text-gray-500 font-bold lg:hidden col-span-2 mt-2 mb-2">&darr;</div>
 
-                <div class="bg-green-100 p-3 rounded-lg border-2 border-green-300">
+                <!-- Step 2 -->
+                <div id="rcm-step-2" class="rcm-step bg-green-100 p-3 rounded-lg border-2 border-green-300" onclick="showRCMDetails(2)">
                     <p class="font-bold text-green-800">2. Encounter</p>
                     <p class="text-xs text-green-700">Documentation (EHR)</p>
                 </div>
                 <div class="flex items-center justify-center text-gray-500 font-bold hidden lg:block">&rarr;</div>
                 <div class="flex items-center justify-center text-gray-500 font-bold lg:hidden col-span-2 mt-2 mb-2">&darr;</div>
 
-                <div class="bg-purple-100 p-3 rounded-lg border-2 border-purple-300">
+                <!-- Step 3 -->
+                <div id="rcm-step-3" class="rcm-step bg-purple-100 p-3 rounded-lg border-2 border-purple-300" onclick="showRCMDetails(3)">
                     <p class="font-bold text-purple-800">3. Coding</p>
-                    <p class="text-xs text-purple-700">ICD-10/CPT/HCPCS Assignment</p>
+                    <p class="text-xs text-purple-700">ICD-10/CPT</p>
                 </div>
                 <div class="flex items-center justify-center text-gray-500 font-bold hidden lg:block">&rarr;</div>
                 <div class="flex items-center justify-center text-gray-500 font-bold lg:hidden col-span-2 mt-2 mb-2">&darr;</div>
 
-                <div class="bg-orange-100 p-3 rounded-lg border-2 border-orange-300">
+                <!-- Step 4 -->
+                <div id="rcm-step-4" class="rcm-step bg-orange-100 p-3 rounded-lg border-2 border-orange-300" onclick="showRCMDetails(4)">
                     <p class="font-bold text-orange-800">4. Claim Submission</p>
-                    <p class="text-xs text-orange-700">Scrubbing & Transmission (CMS-1500)</p>
+                    <p class="text-xs text-orange-700">Scrubbing & Transmit</p>
                 </div>
                 <div class="flex items-center justify-center text-gray-500 font-bold hidden lg:block">&rarr;</div>
                 <div class="flex items-center justify-center text-gray-500 font-bold lg:hidden col-span-2 mt-2 mb-2">&darr;</div>
 
-                <div class="bg-red-100 p-3 rounded-lg border-2 border-red-300">
+                <!-- Step 5 -->
+                <div id="rcm-step-5" class="rcm-step bg-red-100 p-3 rounded-lg border-2 border-red-300" onclick="showRCMDetails(5)">
                     <p class="font-bold text-red-800">5. Payer Adjudication</p>
-                    <p class="text-xs text-red-700">Review, Payment, or Denial (EOB/ERA)</p>
+                    <p class="text-xs text-red-700">Payment or Denial</p>
                 </div>
                 <div class="flex items-center justify-center text-gray-500 font-bold hidden lg:block">&rarr;</div>
                 <div class="flex items-center justify-center text-gray-500 font-bold lg:hidden col-span-2 mt-2 mb-2">&darr;</div>
 
-                <div class="bg-pink-100 p-3 rounded-lg border-2 border-pink-300">
+                <!-- Step 6 -->
+                <div id="rcm-step-6" class="rcm-step bg-pink-100 p-3 rounded-lg border-2 border-pink-300" onclick="showRCMDetails(6)">
                     <p class="font-bold text-pink-800">6. Denial Management</p>
-                    <p class="text-xs text-pink-700">Analyze, Appeal, or Write-off</p>
+                    <p class="text-xs text-pink-700">Appeal & Correct</p>
                 </div>
                 <div class="flex items-center justify-center text-gray-500 font-bold hidden lg:block">&rarr;</div>
                 <div class="flex items-center justify-center text-gray-500 font-bold lg:hidden col-span-2 mt-2 mb-2">&darr;</div>
                 
-                <div class="bg-yellow-100 p-3 rounded-lg border-2 border-yellow-300">
+                <!-- Step 7 -->
+                <div id="rcm-step-7" class="rcm-step bg-yellow-100 p-3 rounded-lg border-2 border-yellow-300" onclick="showRCMDetails(7)">
                     <p class="font-bold text-yellow-800">7. Patient Billing</p>
-                    <p class="text-xs text-yellow-700">Generate Statement (A/R)</p>
+                    <p class="text-xs text-yellow-700">Statement (A/R)</p>
                 </div>
                 <div class="flex items-center justify-center text-gray-500 font-bold hidden lg:block">&rarr;</div>
                 <div class="flex items-center justify-center text-gray-500 font-bold lg:hidden col-span-2 mt-2 mb-2">&darr;</div>
                 
-                <div class="bg-gray-100 p-3 rounded-lg border-2 border-gray-300">
-                    <p class="font-bold text-gray-800">8. Collections/Follow-up</p>
-                    <p class="text-xs text-gray-700">Account Resolution & CE</p>
+                <!-- Step 8 -->
+                <div id="rcm-step-8" class="rcm-step bg-gray-100 p-3 rounded-lg border-2 border-gray-300" onclick="showRCMDetails(8)">
+                    <p class="font-bold text-gray-800">8. Collections</p>
+                    <p class="text-xs text-gray-700">Follow-up & CE</p>
                 </div>
+            </div>
+
+            <hr class="my-6 border-gray-300">
+
+            <div id="rcm-detail-display" class="min-h-[6rem] p-4 bg-white rounded-lg shadow-inner border border-gray-200">
+                <!-- Detailed RCM description appears here after a click -->
             </div>
         </div>
     </main>
